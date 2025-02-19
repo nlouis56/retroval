@@ -7,7 +7,8 @@ use serde_json::{self, Map};
 
 #[derive(Debug, Deserialize)]
 pub struct RawKline {
-    pub open: String,
+    pub timestamp: String,
+    pub open: f64,
     pub high: f64,
     pub low: f64,
     pub close: f64,
@@ -16,11 +17,19 @@ pub struct RawKline {
 
 #[derive(Debug)]
 pub struct Kline {
-    pub open: NaiveDateTime,
+    pub timestamp: NaiveDateTime,
+    pub open: f64,
     pub high: f64,
     pub low: f64,
     pub close: f64,
     pub volume: f64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub enum LogLevel {
+    All,
+    Info,
+    None,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -34,6 +43,10 @@ pub struct Config {
     pub timeframe: String,
     pub base_currency: String,
     pub quote_currency: String,
+    pub log_level: LogLevel,
+    pub log_file: String,
+    pub log_graph: bool,
+    pub log_graph_file: String,
 }
 
 impl Config {
@@ -50,7 +63,8 @@ fn to_klines(raw_klines: Vec<RawKline>) -> Vec<Kline> {
     raw_klines
         .iter()
         .map(|raw_kline| Kline {
-            open: NaiveDateTime::parse_from_str(&raw_kline.open, "%Y-%m-%d %H:%M:%S").unwrap(),
+            timestamp: NaiveDateTime::parse_from_str(&raw_kline.timestamp, "%Y-%m-%d %H:%M:%S").unwrap(),
+            open: raw_kline.open,
             high: raw_kline.high,
             low: raw_kline.low,
             close: raw_kline.close,
@@ -68,7 +82,8 @@ pub fn read_klines(file_path: &str, headers: HashMap<String, String>) -> Result<
     for result in rdr.deserialize() {
         let record: HashMap<String, String> = result.expect("error while parsing CSV");
         let kline = RawKline {
-            open: record.get(&headers["open"]).unwrap().parse::<String>().unwrap(),
+            timestamp: record.get(&headers["timestamp"]).unwrap().parse::<String>().unwrap(),
+            open: record.get(&headers["open"]).unwrap().parse::<f64>().unwrap(),
             high: record.get(&headers["high"]).unwrap().parse::<f64>().unwrap(),
             low: record.get(&headers["low"]).unwrap().parse::<f64>().unwrap(),
             close: record.get(&headers["close"]).unwrap().parse::<f64>().unwrap(),

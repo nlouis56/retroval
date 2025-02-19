@@ -74,13 +74,24 @@ impl Portfolio {
         self.equity_curve.push((date, equity));
     }
 
-    pub fn enter_trade(&mut self, date: NaiveDateTime, price: f64, direction: Direction) {
+    pub fn enter_trade(&mut self, date: NaiveDateTime, price: f64, direction: Direction, log_level: &historical::LogLevel) {
         if !self.open_trade.is_none() {
-            println!("{}: Already in a trade, skipping entry", date);
+            match log_level {
+                historical::LogLevel::None => {}
+                _ => {
+                    println!("{}: Already in a trade, skipping entry", date);
+                }
+            }
+            return;
         }
         let allocated = self.cash * self.trade_fraction;
         if allocated <= 0.0 {
-            println!("{}: Insufficient cash to enter trade.", date);
+            match log_level {
+                historical::LogLevel::None => {}
+                _ => {
+                    println!("{}: Insufficient funds to enter trade", date);
+                }
+            }
             return;
         }
         let effective_entry_price = if direction == Direction::Long {
@@ -101,23 +112,33 @@ impl Portfolio {
             commission: entry_commission,
         };
 
-        println!(
-            "{}: Entering {} trade at effective price {:.2} (allocated: {:.2}, {:.2} cash remaining)",
-            trade.entry_date,
-            trade.direction,
-            trade.entry_date,
-            trade.allocated,
-            self.cash
-        );
+        match log_level {
+            historical::LogLevel::All => {
+                println!(
+                    "{}: Entering {} trade at effective price {:.2} (allocated: {:.2}, {:.2} cash remaining)",
+                    trade.entry_date,
+                    trade.direction,
+                    trade.entry_date,
+                    trade.allocated,
+                    self.cash
+                );
+            }
+            _ => {}
+        }
 
         self.open_trade = Some(trade);
     }
 
-    fn exit_trade(&mut self, date: NaiveDateTime, price: f64) {
+    fn exit_trade(&mut self, date: NaiveDateTime, price: f64, log_level: &historical::LogLevel) {
         let mut trade = match self.open_trade.take() {
             Some(trade) => trade,
             None => {
-                println!("{}: No trade to exit.", date);
+                match log_level {
+                    historical::LogLevel::None => {}
+                    _ => {
+                        println!("{}: No trade to exit.", date);
+                    }
+                }
                 return;
             }
         };
@@ -140,10 +161,15 @@ impl Portfolio {
         let final_trade_value = trade.allocated + net_profit;
         self.cash += final_trade_value;
 
-        println!(
-            "{}: Exiting trade at effective price {:.2}, net profit: {:.2}",
-            date, effective_exit_price, net_profit
-        );
+        match log_level {
+            historical::LogLevel::All => {
+                println!(
+                    "{}: Exiting trade at effective price {:.2}, net profit: {:.2}",
+                    date, effective_exit_price, net_profit
+                );
+            }
+            _ => {}
+        }
 
         self.closed_trades.push(trade);
     }
@@ -252,15 +278,15 @@ pub fn run_simulation(config: &historical::Config, klines: &Vec<historical::Klin
         let signal = strategy.on_tick(kline);
         match signal {
             Some(Signal::Buy) => {
-                portfolio.enter_trade(kline.open, kline.close, Direction::Long);
+                portfolio.enter_trade(kline.timestamp, kline.close, Direction::Long, &config.log_level);
             }
             Some(Signal::Sell) => {
-                portfolio.exit_trade(kline.open, kline.close);
+                portfolio.exit_trade(kline.timestamp, kline.close, &config.log_level);
             }
             Some(Signal::Hold) => {}
             None => { continue; }
         }
-        portfolio.update(kline.open, kline.close);
+        portfolio.update(kline.timestamp, kline.close);
     }
     let mut metrics = Metrics::new();
     metrics.compute(portfolio.closed_trades, portfolio.open_trade);

@@ -1,7 +1,8 @@
 {
     "data_path": "data.csv",
     "headers": {
-        "open": "Open Time",
+        "timestamp": "Open Time",
+        "open": "Open",
         "high": "High",
         "low": "Low",
         "close": "Close",
@@ -13,5 +14,9 @@
     "pair": "BTCUSDT",
     "timeframe": "1h",
     "base_currency": "BTC",
-    "quote_currency": "USDT"
+    "quote_currency": "USDT",
+    "log_level": "All",
+    "log_file": "logs.log",
+    "log_graph": true,
+    "log_graph_file": "graph.png"
 }
