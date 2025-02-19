@@ -1,5 +1,6 @@
+use std::{fs::File, io::{BufWriter, Write}};
 use chrono::NaiveDateTime;
-use crate::historical;
+use crate::{config, historical};
 use crate::strategy::{Strategy, Signal, SimpleStrategy};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,7 +20,7 @@ impl std::fmt::Display for Direction {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Trade {
     pub entry_date: NaiveDateTime,
     pub exit_date: Option<NaiveDateTime>,
@@ -31,7 +32,23 @@ pub struct Trade {
     pub commission: f64,
 }
 
-struct Portfolio {
+pub struct SessionRecap {
+    pub trades: Vec<Trade>,
+    pub equity_curve: Vec<(NaiveDateTime, f64)>,
+    pub metrics: Metrics,
+}
+
+impl SessionRecap {
+    pub fn new(trades: Vec<Trade>, equity_curve: Vec<(NaiveDateTime, f64)>, metrics: Metrics) -> Self {
+        Self {
+            trades,
+            equity_curve,
+            metrics,
+        }
+    }
+}
+
+struct Portfolio<'a> {
     cash: f64,
     open_trade: Option<Trade>,
     closed_trades: Vec<Trade>,
@@ -39,10 +56,13 @@ struct Portfolio {
     commission_rate: f64,
     slippage: f64,
     trade_fraction: f64,
+    log_buffer: Vec<String>,
+    log_buffer_size: usize,
+    config: &'a config::Config,
 }
 
-impl Portfolio {
-    fn new(initial_equity: f64, commission_rate: f64, slippage: f64, trade_fraction: f64) -> Self {
+impl<'a> Portfolio<'a> {
+    fn new(initial_equity: f64, commission_rate: f64, slippage: f64, trade_fraction: f64, config: &'a config::Config) -> Self {
         Self {
             cash: initial_equity,
             open_trade: None,
@@ -51,7 +71,23 @@ impl Portfolio {
             commission_rate,
             slippage,
             trade_fraction,
+            log_buffer: Vec::new(),
+            log_buffer_size: 10,
+            config,
         }
+    }
+
+    fn flush_log_buffer(&mut self) {
+        if self.log_buffer.len() < self.log_buffer_size {
+            return;
+        }
+        let log_file = File::create(&self.config.log_file).unwrap();
+        let mut log_writer = BufWriter::new(log_file);
+        for log in self.log_buffer.iter() {
+            log_writer.write_all(log.as_bytes()).unwrap();
+            log_writer.write_all(b"\n").unwrap();
+        }
+        self.log_buffer.clear();
     }
 
     fn total_equity(&self, current_price: f64) -> f64 {
@@ -74,12 +110,13 @@ impl Portfolio {
         self.equity_curve.push((date, equity));
     }
 
-    pub fn enter_trade(&mut self, date: NaiveDateTime, price: f64, direction: Direction, log_level: &historical::LogLevel) {
+    pub fn enter_trade(&mut self, date: NaiveDateTime, price: f64, direction: Direction, log_level: &config::LogLevel) {
         if !self.open_trade.is_none() {
             match log_level {
-                historical::LogLevel::None => {}
+                config::LogLevel::None => {}
                 _ => {
-                    println!("{}: Already in a trade, skipping entry", date);
+                    self.log_buffer.push(format!("{}: Trade already open, cannot enter another trade.", date));
+                    self.flush_log_buffer();
                 }
             }
             return;
@@ -87,9 +124,10 @@ impl Portfolio {
         let allocated = self.cash * self.trade_fraction;
         if allocated <= 0.0 {
             match log_level {
-                historical::LogLevel::None => {}
+                config::LogLevel::None => {}
                 _ => {
-                    println!("{}: Insufficient funds to enter trade", date);
+                    self.log_buffer.push(format!("{}: Not enough cash to enter trade.", date));
+                    self.flush_log_buffer();
                 }
             }
             return;
@@ -113,15 +151,16 @@ impl Portfolio {
         };
 
         match log_level {
-            historical::LogLevel::All => {
-                println!(
+            config::LogLevel::All => {
+                self.log_buffer.push(format!(
                     "{}: Entering {} trade at effective price {:.2} (allocated: {:.2}, {:.2} cash remaining)",
-                    trade.entry_date,
-                    trade.direction,
-                    trade.entry_date,
-                    trade.allocated,
+                    date,
+                    direction,
+                    effective_entry_price,
+                    allocated,
                     self.cash
-                );
+                ));
+                self.flush_log_buffer();
             }
             _ => {}
         }
@@ -129,14 +168,15 @@ impl Portfolio {
         self.open_trade = Some(trade);
     }
 
-    fn exit_trade(&mut self, date: NaiveDateTime, price: f64, log_level: &historical::LogLevel) {
+    fn exit_trade(&mut self, date: NaiveDateTime, price: f64, log_level: &config::LogLevel) {
         let mut trade = match self.open_trade.take() {
             Some(trade) => trade,
             None => {
                 match log_level {
-                    historical::LogLevel::None => {}
+                    config::LogLevel::None => {}
                     _ => {
-                        println!("{}: No trade to exit.", date);
+                        self.log_buffer.push(format!("{}: No trade to exit.", date));
+                        self.flush_log_buffer();
                     }
                 }
                 return;
@@ -162,11 +202,12 @@ impl Portfolio {
         self.cash += final_trade_value;
 
         match log_level {
-            historical::LogLevel::All => {
-                println!(
-                    "{}: Exiting trade at effective price {:.2}, net profit: {:.2}",
-                    date, effective_exit_price, net_profit
-                );
+            config::LogLevel::All => {
+                self.log_buffer.push(format!(
+                    "{}: Exiting trade at effective price {:.2}, net profit: {:.2} (allocated: {:.2}, {:.2} cash remaining)",
+                    date, effective_exit_price, net_profit, trade.allocated, self.cash
+                ));
+                self.flush_log_buffer();
             }
             _ => {}
         }
@@ -200,7 +241,7 @@ impl Metrics {
         }
     }
 
-    pub fn compute(&mut self, closed_trades: Vec<Trade>, last_trade: Option<Trade>) {
+    pub fn compute(&mut self, trade_list: &Vec<Trade>) {
         let mut total_profit = 0.0;
         let mut total_commission = 0.0;
         let mut total_wins = 0;
@@ -210,7 +251,7 @@ impl Metrics {
         let mut current_drawdown = 0.0;
         let mut current_drawdown_duration = 0;
 
-        for trade in closed_trades.iter() {
+        for trade in trade_list.iter() {
             total_profit += trade.profit.unwrap();
             total_commission += trade.commission;
             if trade.profit.unwrap() > 0.0 {
@@ -231,15 +272,7 @@ impl Metrics {
             }
         }
 
-        if let Some(trade) = last_trade {
-            if trade.profit.unwrap() > 0.0 {
-                total_wins += 1;
-            } else {
-                total_losses += 1;
-            }
-        }
-
-        let total_trades = closed_trades.len();
+        let total_trades = trade_list.len();
         let win_rate = if total_trades > 0 {
             total_wins as f64 / total_trades as f64
         } else {
@@ -266,12 +299,13 @@ impl Metrics {
     }
 }
 
-pub fn run_simulation(config: &historical::Config, klines: &Vec<historical::Kline>) -> Metrics {
+pub fn run_simulation(config: &config::Config, klines: &Vec<historical::Kline>) -> SessionRecap {
     let mut portfolio = Portfolio::new(
         config.base_funds,
         config.transaction_fee,
         config.slippage,
         0.1,
+        config
     );
     let mut strategy = SimpleStrategy::new(14);
     for kline in klines.iter() {
@@ -288,7 +322,12 @@ pub fn run_simulation(config: &historical::Config, klines: &Vec<historical::Klin
         }
         portfolio.update(kline.timestamp, kline.close);
     }
+    if portfolio.open_trade.is_some() {
+        portfolio.exit_trade(klines.last().unwrap().timestamp, klines.last().unwrap().close, &config.log_level);
+    }
+    let trade_list = portfolio.closed_trades.clone();
+    let equity_curve = portfolio.equity_curve.clone();
     let mut metrics = Metrics::new();
-    metrics.compute(portfolio.closed_trades, portfolio.open_trade);
-    metrics
+    metrics.compute(&trade_list);
+    SessionRecap::new(trade_list, equity_curve, metrics)
 }

@@ -1,8 +1,10 @@
+mod config;
 mod historical;
 mod strategy;
 mod testing;
+mod graphing;
 
-fn print_metrics(metrics: &testing::Metrics, config: &historical::Config) {
+fn print_metrics(metrics: &testing::Metrics, config: &config::Config) {
     let profit_percentage = metrics.total_profit / config.base_funds * 100.0;
     let max_drawdown_percentage = metrics.max_drawdown / config.base_funds * 100.0;
     println!("Backtest results on {}:", config.pair);
@@ -17,12 +19,16 @@ fn print_metrics(metrics: &testing::Metrics, config: &historical::Config) {
 }
 
 fn main() {
-    let config = historical::read_config("config.json");
+    let config = config::read_config("config.json");
     let klines = match historical::read_klines(&config.data_path, config.get_headers()) {
         Ok(klines) => klines,
         Err(e) => panic!("Error while reading klines: {:?}", e),
 
     };
-    let metrics = testing::run_simulation(&config, &klines);
-    print_metrics(&metrics, &config);
+    let recap = testing::run_simulation(&config, &klines);
+    print_metrics(&recap.metrics, &config);
+    match config.log_graph {
+        true => graphing::plot_graph(&config, &klines, recap).unwrap(),
+        false => (),
+    };
 }
