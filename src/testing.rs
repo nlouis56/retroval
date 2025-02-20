@@ -1,4 +1,4 @@
-use std::{fs::File, io::{BufWriter, Write}};
+use std::{fs::{File, OpenOptions}, io::{BufWriter, Write}};
 use chrono::NaiveDateTime;
 use crate::{config, historical};
 use crate::strategy::{Strategy, Signal, SimpleStrategy};
@@ -81,7 +81,11 @@ impl<'a> Portfolio<'a> {
         if self.log_buffer.len() < self.log_buffer_size {
             return;
         }
-        let log_file = File::create(&self.config.log_file).unwrap();
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.config.log_file)
+            .unwrap();
         let mut log_writer = BufWriter::new(log_file);
         for log in self.log_buffer.iter() {
             log_writer.write_all(log.as_bytes()).unwrap();
