@@ -9,7 +9,7 @@
         "volume": "Volume"
     },
     "base_funds": 1000,
-    "transaction_fee": 0.001,
+    "transaction_fee": 0.095,
     "slippage": 0.001,
     "pair": "BTCUSDT",
     "timeframe": "1h",

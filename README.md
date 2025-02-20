@@ -19,7 +19,7 @@ You can setup the following parameters:
 - `data_path`: the path to the data file. Can be relative or absolute.
 - `headers`: The headers present in the data file. Allows the code to understand the data.
 - `base_funds`: Pretty self-explanatory.
-- `transaction_fee`: The fee you pay for each transaction, in percentage. Binance charges 0.075% for example.
+- `transaction_fee`: The fee you pay for each transaction, in percentage. Binance charges 0.095% on USDC transactions for example.
 - `slippage`: The slippage you want to simulate, in percentage. The slippage is the difference between the expected price of a trade and the price at which the trade is actually executed. It is usually negative, because it is usually a loss for the trader.
 - `pair`: The pair you want to trade. For example, `BTCUSDT`. This is mostly used for logging and displaying purposes.
 - `base_currency`: The currency you want to trade. For example, `BTC`. Once again, mostly used for logging and displaying purposes.
