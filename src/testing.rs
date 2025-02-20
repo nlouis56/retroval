@@ -1,4 +1,4 @@
-use std::{fs::{File, OpenOptions}, io::{BufWriter, Write}};
+use std::{fs::OpenOptions, io::{BufWriter, Write}};
 use chrono::NaiveDateTime;
 use crate::{config, historical};
 use crate::strategy::{Strategy, Signal, SimpleStrategy};
