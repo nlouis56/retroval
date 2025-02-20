@@ -25,6 +25,10 @@ fn main() {
         Err(e) => panic!("Error while reading klines: {:?}", e),
 
     };
+    // check if log file already exists
+    if std::path::Path::new(&config.log_file).exists() {
+        std::fs::remove_file(&config.log_file).expect("Error while removing log file");
+    }
     let recap = testing::run_simulation(&config, &klines);
     print_metrics(&recap.metrics, &config);
     match config.log_graph {
