@@ -141,7 +141,8 @@ impl<'a> Portfolio<'a> {
         } else { // Short
             price * (1.0 - self.slippage)
         };
-        let entry_commission = self.commission_rate * allocated;
+        let purchased_amount = allocated / effective_entry_price;
+        let entry_commission = (self.commission_rate * allocated) / 100.0;
         self.cash -= allocated;
         let trade = Trade {
             entry_date: date,
@@ -157,12 +158,17 @@ impl<'a> Portfolio<'a> {
         match log_level {
             config::LogLevel::All => {
                 self.log_buffer.push(format!(
-                    "{}: Entering {} trade at effective price {:.2} (allocated: {:.2}, {:.2} cash remaining)",
+                    "{}: Entering {} trade at effective price {:.2}. Entry commission is {:.2}. Allocated: {:.2} {} ({:.4} {}), {:.2} {} remaining)",
                     date,
                     direction,
                     effective_entry_price,
+                    entry_commission,
                     allocated,
-                    self.cash
+                    self.config.quote_currency,
+                    purchased_amount,
+                    self.config.base_currency,
+                    self.cash,
+                    self.config.quote_currency
                 ));
                 self.flush_log_buffer();
             }
@@ -191,7 +197,7 @@ impl<'a> Portfolio<'a> {
         } else {
             price * (1.0 + self.slippage)
         };
-        let exit_commission = self.commission_rate * trade.allocated;
+        let exit_commission = (self.commission_rate * trade.allocated) / 100.0;
         let raw_profit = if trade.direction == Direction::Long {
             trade.allocated * ((effective_exit_price - trade.entry_price) / trade.entry_price)
         } else {
@@ -208,8 +214,14 @@ impl<'a> Portfolio<'a> {
         match log_level {
             config::LogLevel::All => {
                 self.log_buffer.push(format!(
-                    "{}: Exiting trade at effective price {:.2}, net profit: {:.2} (allocated: {:.2}, {:.2} cash remaining)",
-                    date, effective_exit_price, net_profit, trade.allocated, self.cash
+                    "{}: Exiting trade at effective price {:.2}, net profit: {:.2}. Total broker commission is {:.2} {} Now holding {:.2} {}.",
+                    date,
+                    effective_exit_price,
+                    net_profit,
+                    trade.commission,
+                    self.config.quote_currency,
+                    self.cash,
+                    self.config.quote_currency
                 ));
                 self.flush_log_buffer();
             }
